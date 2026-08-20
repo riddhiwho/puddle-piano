@@ -19,7 +19,7 @@ const songs = [
   { name: "Rain, rain, go away", notes: ["G","D","G","G","D","G","G","D","H","G","F","D","S","A"], message: "A rainy-day song made for puddles." },
   { name: "Itsy Bitsy Spider", notes: ["G","G","G","A","H","H","H","A","G","A","H","K","K","K","H","G","A","H","H","H","A","G"], message: "Help a tiny spider climb up the water spout." }
 ];
-let octave = 0, sustain = false, muted = false, songIndex = 0, songStep = -1, audioContext, demoTimers = [], celebrationTimer;
+let octave = 0, sustain = false, muted = false, songIndex = 0, songStep = -1, audioContext, demoTimers = [], celebrationTimer, audioResumePromise, fallbackAudio, fallbackUrl, previewRun = 0;
 const activeVoices = new Map();
 const maxActiveVoices = 24;
 const piano = document.querySelector("#piano"), effects = document.querySelector("#effects"), guide = document.querySelector("#guide-text");
@@ -50,19 +50,19 @@ function wireKey(key, index, black) {
 function readyAudio() {
   const AudioContextClass = window.AudioContext || window.webkitAudioContext;
   if (!AudioContextClass) return null;
-  if (!audioContext || audioContext.state === "closed") audioContext = new AudioContextClass();
-
-  // A context can be "interrupted" after the browser/device takes over audio,
-  // not only "suspended" before the first user interaction.
-  if (audioContext.state !== "running") {
-    const resume = audioContext.resume();
-    if (resume?.catch) resume.catch(() => {});
-  }
+  if (!audioContext || audioContext.state === "closed") { audioContext = new AudioContextClass(); audioResumePromise = undefined; }
+  resumeAudio(audioContext);
   return audioContext;
 }
+function resumeAudio(context) {
+  if (!context || context.state === "closed") return Promise.resolve(false);
+  if (context.state === "running") return Promise.resolve(true);
+  if (!audioResumePromise) audioResumePromise = context.resume().then(() => context.state === "running").catch(() => false).finally(() => { audioResumePromise = undefined; });
+  return audioResumePromise;
+}
 function playSafariFallback(frequency, duration = .72) {
-  // Safari occasionally leaves a local page's AudioContext suspended even
-  // inside a click. A short native Audio element keeps the piano playable.
+  // Keep one native player alive. Mobile browsers limit simultaneous Audio
+  // elements, which otherwise makes a few notes play and then fall silent.
   const sampleRate = 22050, frames = Math.floor(sampleRate * Math.min(Math.max(duration, .22), 1.1));
   const bytes = new ArrayBuffer(44 + frames * 2), view = new DataView(bytes);
   const write = (offset, text) => [...text].forEach((character, index) => view.setUint8(offset + index, character.charCodeAt(0)));
@@ -72,10 +72,16 @@ function playSafariFallback(frequency, duration = .72) {
     const sample = (Math.sin(Math.PI * 2 * frequency * time) * .72 + Math.sin(Math.PI * 2 * frequency * 2 * time) * .18 + Math.sin(Math.PI * 2 * frequency * 3.01 * time) * .07) * envelope;
     view.setInt16(44 + frame * 2, Math.max(-1, Math.min(1, sample)) * 32767, true);
   }
-  const url = URL.createObjectURL(new Blob([bytes], { type:"audio/wav" })), note = new Audio(url);
+  const url = URL.createObjectURL(new Blob([bytes], { type:"audio/wav" }));
+  if (!fallbackAudio) fallbackAudio = new Audio();
+  fallbackAudio.pause();
+  if (fallbackUrl) URL.revokeObjectURL(fallbackUrl);
+  fallbackUrl = url;
+  const note = fallbackAudio;
+  note.src = url;
   note.volume = .35;
-  note.addEventListener("ended", () => URL.revokeObjectURL(url), { once:true });
-  note.play().catch(() => URL.revokeObjectURL(url));
+  note.onended = () => { if (fallbackUrl === url) { URL.revokeObjectURL(url); fallbackUrl = undefined; } };
+  note.play().catch(() => { if (fallbackUrl === url) { URL.revokeObjectURL(url); fallbackUrl = undefined; } });
 }
 function playPiano(frequency, id, duration = 0) {
   const context = readyAudio();
@@ -113,10 +119,14 @@ function gardenEffect(key) { const rect = key.getBoundingClientRect(); ["ripple"
 function updateSongGlow() { document.querySelectorAll(".song-next").forEach(el=>el.classList.remove("song-next")); if (songStep < 0) return; const next=songs[songIndex].notes[songStep]; document.querySelector(`[data-computer="${next}"]`)?.classList.add("song-next"); }
 function chooseSong(delta=0) { songIndex = (songIndex + delta + songs.length) % songs.length; songStep = -1; document.querySelector("#song-name").textContent=songs[songIndex].name; document.querySelector("#song-listen").setAttribute("aria-label",`Listen to ${songs[songIndex].name}`); document.querySelector("#song-start").textContent="start tune"; document.querySelector("#song-prompt").textContent=songs[songIndex].message; updateSongGlow(); }
 function celebrateSong() { const celebration = document.querySelector("#celebration"); clearTimeout(celebrationTimer); celebration.classList.remove("show"); void celebration.offsetWidth; celebration.classList.add("show"); celebration.setAttribute("aria-hidden", "false"); celebrationTimer = setTimeout(() => { celebration.classList.remove("show"); celebration.setAttribute("aria-hidden", "true"); }, 2800); }
-function playTunePreview() {
+async function playTunePreview() {
+  const run = ++previewRun;
   demoTimers.forEach(clearTimeout); demoTimers = [];
   const button = document.querySelector("#song-listen"); button.classList.add("playing"); button.textContent = "♫";
-  readyAudio(); if (muted) { button.classList.remove("playing"); button.textContent = "🔊"; return; }
+  const context = readyAudio(); if (muted) { button.classList.remove("playing"); button.textContent = "🔊"; return; }
+  // Preview notes are scheduled after this click. Wait until the click has
+  // genuinely unlocked audio so iOS Safari and mobile Chrome permit them.
+  if (!(await resumeAudio(context)) || run !== previewRun) { if (run === previewRun) { button.classList.remove("playing"); button.textContent = "🔊"; guide.textContent = "Tap a piano key once, then try the speaker again."; } return; }
   songStep = -1; updateSongGlow();
   const pace = .82;
   songs[songIndex].notes.forEach((computer, index) => {
@@ -128,6 +138,8 @@ function playTunePreview() {
   });
   demoTimers.push(setTimeout(() => { button.classList.remove("playing"); button.textContent = "🔊"; guide.textContent = "Now it’s your turn to make a ripple!"; }, songs[songIndex].notes.length * pace * 1000 + 180));
 }
+document.addEventListener("pointerdown", () => { resumeAudio(readyAudio()); }, { capture:true, passive:true });
+document.addEventListener("keydown", () => { resumeAudio(readyAudio()); }, { capture:true });
 document.addEventListener("keydown", (event) => { if (event.repeat || event.metaKey || event.ctrlKey || event.altKey || /INPUT|TEXTAREA/.test(document.activeElement.tagName)) return; const key=event.key.toUpperCase(); const id=keyToIndex[key]; if(id === undefined) return; event.preventDefault(); const el=document.querySelector(`[data-id="${id}"]`); if(el) trigger(typeof id === "string" ? blackNoteFor(Number(id.slice(1))) : noteFor(id), el); });
 document.addEventListener("keyup", (event) => { const key=event.key.toUpperCase(); const id=keyToIndex[key]; if(id === undefined) return; const el=document.querySelector(`[data-id="${id}"]`); if(el) release(el); });
 // Browsers do not always send keyup when the tab/app loses focus. Release those
