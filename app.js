@@ -21,6 +21,7 @@ const songs = [
 ];
 let octave = 0, sustain = false, muted = false, songIndex = 0, songStep = -1, audioContext, demoTimers = [];
 const activeVoices = new Map();
+const maxActiveVoices = 24;
 const piano = document.querySelector("#piano"), effects = document.querySelector("#effects"), guide = document.querySelector("#guide-text");
 const noteOffsets = { C: -9, "C#": -8, D: -7, "D#": -6, E: -5, F: -4, "F#": -3, G: -2, "G#": -1, A: 0, "A#": 1, B: 2 };
 const frequencyFor = (note) => { const [, letter, sharp, octaveNumber] = note.match(/^([A-G])(#?)(\d)$/); return 440 * (2 ** ((noteOffsets[`${letter}${sharp}`] + (Number(octaveNumber) - 4) * 12 + octave * 12) / 12)); };
@@ -46,14 +47,43 @@ function wireKey(key, index, black) {
   const play = (event) => { event.preventDefault(); trigger(black ? blackNoteFor(index) : noteFor(index), key); };
   key.addEventListener("pointerdown", play); key.addEventListener("pointerup", () => release(key)); key.addEventListener("pointerleave", () => release(key)); key.addEventListener("pointercancel", () => release(key));
 }
-function readyAudio() { if (!audioContext) audioContext = new (window.AudioContext || window.webkitAudioContext)(); if (audioContext.state === "suspended") audioContext.resume(); return audioContext; }
+function readyAudio() {
+  const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContextClass) return null;
+  if (!audioContext || audioContext.state === "closed") audioContext = new AudioContextClass();
+
+  // A context can be "interrupted" after the browser/device takes over audio,
+  // not only "suspended" before the first user interaction.
+  if (audioContext.state !== "running") {
+    const resume = audioContext.resume();
+    if (resume?.catch) resume.catch(() => {});
+  }
+  return audioContext;
+}
 function playPiano(frequency, id, duration = 0) {
-  const context = readyAudio(); releasePiano(id);
+  const context = readyAudio();
+  if (!context) return;
+  releasePiano(id);
+  while (activeVoices.size >= maxActiveVoices) releasePiano(activeVoices.keys().next().value);
   const gain = context.createGain(); gain.connect(context.destination); gain.gain.setValueAtTime(.0001, context.currentTime); gain.gain.exponentialRampToValueAtTime(.22, context.currentTime + .018); gain.gain.exponentialRampToValueAtTime(.075, context.currentTime + .22);
   const oscillators = [["sine", 1, .72], ["triangle", 2, .16], ["sine", 3.01, .07]].map(([type, multiplier, volume]) => { const oscillator = context.createOscillator(); const partialGain = context.createGain(); oscillator.type = type; oscillator.frequency.value = frequency * multiplier; partialGain.gain.value = volume; oscillator.connect(partialGain).connect(gain); oscillator.start(); return oscillator; });
-  activeVoices.set(id, { gain, oscillators }); if (duration) setTimeout(() => releasePiano(id), duration * 1000);
+  const voice = { gain, oscillators };
+  activeVoices.set(id, voice);
+  // Only release this exact voice. A cancelled/restarted song preview may reuse
+  // its id before an older duration timer gets a chance to run.
+  if (duration) setTimeout(() => { if (activeVoices.get(id) === voice) releasePiano(id); }, duration * 1000);
 }
-function releasePiano(id) { const voice = activeVoices.get(id); if (!voice || !audioContext) return; const end = audioContext.currentTime + .35; voice.gain.gain.cancelScheduledValues(audioContext.currentTime); voice.gain.gain.setValueAtTime(Math.max(.0001, voice.gain.gain.value), audioContext.currentTime); voice.gain.gain.exponentialRampToValueAtTime(.0001, end); voice.oscillators.forEach(oscillator => oscillator.stop(end + .02)); activeVoices.delete(id); }
+function releasePiano(id) {
+  const voice = activeVoices.get(id);
+  if (!voice || !audioContext) return;
+  activeVoices.delete(id);
+  const end = audioContext.currentTime + .35;
+  voice.gain.gain.cancelScheduledValues(audioContext.currentTime);
+  voice.gain.gain.setValueAtTime(Math.max(.0001, voice.gain.gain.value), audioContext.currentTime);
+  voice.gain.gain.exponentialRampToValueAtTime(.0001, end);
+  voice.oscillators.forEach(oscillator => oscillator.stop(end + .02));
+  setTimeout(() => { voice.oscillators.forEach(oscillator => oscillator.disconnect()); voice.gain.disconnect(); }, 450);
+}
 function releaseAllPiano() { [...activeVoices.keys()].forEach(releasePiano); }
 function trigger(note, key) {
   if (!muted) playPiano(note, key.dataset.id);
@@ -82,6 +112,9 @@ function playTunePreview() {
 }
 document.addEventListener("keydown", (event) => { if (event.repeat || event.metaKey || event.ctrlKey || event.altKey || /INPUT|TEXTAREA/.test(document.activeElement.tagName)) return; const key=event.key.toUpperCase(); const id=keyToIndex[key]; if(id === undefined) return; event.preventDefault(); const el=document.querySelector(`[data-id="${id}"]`); if(el) trigger(typeof id === "string" ? blackNoteFor(Number(id.slice(1))) : noteFor(id), el); });
 document.addEventListener("keyup", (event) => { const key=event.key.toUpperCase(); const id=keyToIndex[key]; if(id === undefined) return; const el=document.querySelector(`[data-id="${id}"]`); if(el) release(el); });
+// Browsers do not always send keyup when the tab/app loses focus. Release those
+// notes so a lost key press cannot leave a voice running indefinitely.
+window.addEventListener("blur", () => { if (!sustain) releaseAllPiano(); document.querySelectorAll(".key.active, .black-key.active").forEach(key => key.classList.remove("active")); });
 document.querySelector("#song-prev").addEventListener("click",()=>chooseSong(-1)); document.querySelector("#song-next").addEventListener("click",()=>chooseSong(1));
 document.querySelector("#song-listen").addEventListener("click",playTunePreview);
 document.querySelector("#song-start").addEventListener("click",()=>{ songStep=0; document.querySelector("#song-prompt").textContent="Press the glowing key to begin!"; updateSongGlow(); readyAudio(); });
