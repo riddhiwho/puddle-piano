@@ -19,7 +19,7 @@ const songs = [
   { name: "Rain, rain, go away", notes: ["G","D","G","G","D","G","G","D","H","G","F","D","S","A"], message: "A rainy-day song made for puddles." },
   { name: "Itsy Bitsy Spider", notes: ["G","G","G","A","H","H","H","A","G","A","H","K","K","K","H","G","A","H","H","H","A","G"], message: "Help a tiny spider climb up the water spout." }
 ];
-let octave = 0, sustain = false, muted = false, songIndex = 0, songStep = -1, audioContext, demoTimers = [];
+let octave = 0, sustain = false, muted = false, songIndex = 0, songStep = -1, audioContext, demoTimers = [], celebrationTimer;
 const activeVoices = new Map();
 const maxActiveVoices = 24;
 const piano = document.querySelector("#piano"), effects = document.querySelector("#effects"), guide = document.querySelector("#guide-text");
@@ -60,9 +60,26 @@ function readyAudio() {
   }
   return audioContext;
 }
+function playSafariFallback(frequency, duration = .72) {
+  // Safari occasionally leaves a local page's AudioContext suspended even
+  // inside a click. A short native Audio element keeps the piano playable.
+  const sampleRate = 22050, frames = Math.floor(sampleRate * Math.min(Math.max(duration, .22), 1.1));
+  const bytes = new ArrayBuffer(44 + frames * 2), view = new DataView(bytes);
+  const write = (offset, text) => [...text].forEach((character, index) => view.setUint8(offset + index, character.charCodeAt(0)));
+  write(0, "RIFF"); view.setUint32(4, 36 + frames * 2, true); write(8, "WAVEfmt "); view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, 1, true); view.setUint32(24, sampleRate, true); view.setUint32(28, sampleRate * 2, true); view.setUint16(32, 2, true); view.setUint16(34, 16, true); write(36, "data"); view.setUint32(40, frames * 2, true);
+  for (let frame = 0; frame < frames; frame++) {
+    const time = frame / sampleRate, envelope = Math.exp(-4.3 * frame / frames);
+    const sample = (Math.sin(Math.PI * 2 * frequency * time) * .72 + Math.sin(Math.PI * 2 * frequency * 2 * time) * .18 + Math.sin(Math.PI * 2 * frequency * 3.01 * time) * .07) * envelope;
+    view.setInt16(44 + frame * 2, Math.max(-1, Math.min(1, sample)) * 32767, true);
+  }
+  const url = URL.createObjectURL(new Blob([bytes], { type:"audio/wav" })), note = new Audio(url);
+  note.volume = .35;
+  note.addEventListener("ended", () => URL.revokeObjectURL(url), { once:true });
+  note.play().catch(() => URL.revokeObjectURL(url));
+}
 function playPiano(frequency, id, duration = 0) {
   const context = readyAudio();
-  if (!context) return;
+  if (!context || context.state !== "running") { playSafariFallback(frequency, duration || .72); return; }
   releasePiano(id);
   while (activeVoices.size >= maxActiveVoices) releasePiano(activeVoices.keys().next().value);
   const gain = context.createGain(); gain.connect(context.destination); gain.gain.setValueAtTime(.0001, context.currentTime); gain.gain.exponentialRampToValueAtTime(.22, context.currentTime + .018); gain.gain.exponentialRampToValueAtTime(.075, context.currentTime + .22);
@@ -89,12 +106,13 @@ function trigger(note, key) {
   if (!muted) playPiano(note, key.dataset.id);
   key.classList.add("active"); gardenEffect(key); guide.textContent = songStep >= 0 ? "Lovely! Keep following the fireflies." : ["What a lovely note!", "The puddle heard you!", "The flowers are listening!", "That made a little ripple!"][Math.floor(Math.random()*4)];
   const expected = songStep >= 0 && songs[songIndex].notes[songStep];
-  if (expected && key.dataset.computer === expected) { songStep++; if (songStep >= songs[songIndex].notes.length) { guide.textContent = "You made a melody! The garden is cheering."; songStep = -1; document.querySelector("#song-prompt").textContent = "A whole tiny tune! Pick another one or make your own music."; } updateSongGlow(); }
+  if (expected && key.dataset.computer === expected) { songStep++; if (songStep >= songs[songIndex].notes.length) { guide.textContent = "You made a melody! The garden is cheering."; songStep = -1; document.querySelector("#song-prompt").textContent = "A whole tiny tune! Pick another one or make your own music."; celebrateSong(); } updateSongGlow(); }
 }
 function release(key) { if (!sustain) releasePiano(key.dataset.id); key.classList.remove("active"); }
 function gardenEffect(key) { const rect = key.getBoundingClientRect(); ["ripple", "petal", "petal"].forEach((type, i) => { const el=document.createElement("span"); el.className=type; el.style.left=`${rect.left+rect.width/2+(i-1)*10}px`; el.style.top=`${rect.bottom-25}px`; if(type === "petal") { el.textContent=i===1?"✦":"❀"; el.style.setProperty("--x",`${(i-1)*26}px`); } effects.append(el); setTimeout(()=>el.remove(),1000); }); }
 function updateSongGlow() { document.querySelectorAll(".song-next").forEach(el=>el.classList.remove("song-next")); if (songStep < 0) return; const next=songs[songIndex].notes[songStep]; document.querySelector(`[data-computer="${next}"]`)?.classList.add("song-next"); }
 function chooseSong(delta=0) { songIndex = (songIndex + delta + songs.length) % songs.length; songStep = -1; document.querySelector("#song-name").textContent=songs[songIndex].name; document.querySelector("#song-listen").setAttribute("aria-label",`Listen to ${songs[songIndex].name}`); document.querySelector("#song-start").textContent="start tune"; document.querySelector("#song-prompt").textContent=songs[songIndex].message; updateSongGlow(); }
+function celebrateSong() { const celebration = document.querySelector("#celebration"); clearTimeout(celebrationTimer); celebration.classList.remove("show"); void celebration.offsetWidth; celebration.classList.add("show"); celebration.setAttribute("aria-hidden", "false"); celebrationTimer = setTimeout(() => { celebration.classList.remove("show"); celebration.setAttribute("aria-hidden", "true"); }, 2800); }
 function playTunePreview() {
   demoTimers.forEach(clearTimeout); demoTimers = [];
   const button = document.querySelector("#song-listen"); button.classList.add("playing"); button.textContent = "♫";
