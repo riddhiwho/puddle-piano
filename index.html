@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#a7d9e9" />
+    <title>Puddle Piano — make a little music</title>
+    <meta name="description" content="A tiny, storybook piano garden for curious first notes." />
+    <link rel="stylesheet" href="styles.css" />
+    <script defer src="app.js"></script>
+  </head>
+  <body>
+    <main class="garden" id="garden">
+      <div class="sky-doodle doodle-one" aria-hidden="true">☁</div>
+      <div class="sky-doodle doodle-two" aria-hidden="true">✦</div>
+      <div class="sun" aria-hidden="true"></div>
+
+      <header class="topbar">
+        <a class="brand" href="./" aria-label="Puddle Piano home">
+          <span class="brand-mark" aria-hidden="true">♩</span>
+          <span>Puddle<br /><em>Piano</em></span>
+        </a>
+        <div class="top-actions">
+          <button class="icon-button" id="motion-toggle" type="button" aria-pressed="false" title="Toggle gentle motion">✦ <span>motion</span></button>
+          <button class="icon-button" id="sound-toggle" type="button" aria-pressed="false" title="Mute sound">♬ <span>sound</span></button>
+        </div>
+      </header>
+
+      <section class="intro" aria-labelledby="page-title">
+        <p class="eyebrow">A STORYBOOK MUSIC GARDEN</p>
+        <h1 id="page-title">Make a little <span>ripple.</span></h1>
+        <p class="lede">Press the glowing letters, tap the keys, and let the garden sing back.</p>
+      </section>
+
+      <section class="play-card" aria-label="Piano player">
+        <div class="play-controls">
+          <div class="character-note"><span class="frog" aria-hidden="true">🐸</span><span id="guide-text">Hello, little musician!</span></div>
+          <div class="control-cluster">
+            <button class="round-control" id="octave-down" type="button" aria-label="Play lower notes">−<small>lower</small></button>
+            <output id="octave-label" aria-live="polite">middle notes</output>
+            <button class="round-control" id="octave-up" type="button" aria-label="Play higher notes">+<small>higher</small></button>
+            <button class="sustain-button" id="sustain-toggle" type="button" aria-pressed="false">⌁ sustain</button>
+          </div>
+        </div>
+
+        <div class="song-strip" aria-label="Tiny song guide">
+          <div class="song-title-group">
+            <p class="mini-label">FOLLOW THE FIREFLIES</p>
+            <div class="song-title-line"><p id="song-name">Pick a tiny tune</p><button id="song-listen" type="button" class="listen-button" aria-label="Listen to this tune" title="Listen to this tune">🔊</button></div>
+          </div>
+          <div class="song-actions">
+            <button id="song-prev" type="button" class="tiny-button" aria-label="Previous tune">←</button>
+            <button id="song-start" type="button" class="start-button">choose a tune</button>
+            <button id="song-next" type="button" class="tiny-button" aria-label="Next tune">→</button>
+          </div>
+        </div>
+        <p class="song-prompt" id="song-prompt" aria-live="polite">Free play is always welcome. Choose a tune whenever you feel like it.</p>
+
+        <div class="piano-wrap" aria-label="Playable piano. Press your keyboard letters or tap a key.">
+          <div class="piano" id="piano"></div>
+        </div>
+        <p class="keyboard-hint"><span aria-hidden="true">⌨</span> You can use your computer keyboard too. Try <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd>!</p>
+      </section>
+
+      <div class="garden-floor" aria-hidden="true">
+        <div class="flower flower-a">✿</div><div class="flower flower-b">✿</div><div class="flower flower-c">❀</div>
+        <div class="mushroom">♟</div><div class="snail">🐌</div>
+        <div class="puddle"><i></i><i></i><i></i></div>
+      </div>
+      <div class="effects" id="effects" aria-hidden="true"></div>
+    </main>
+    <noscript><p class="no-script">Puddle Piano needs JavaScript to play its notes.</p></noscript>
+  </body>
+</html>
