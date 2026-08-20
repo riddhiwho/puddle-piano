@@ -16,7 +16,7 @@ Then visit `http://localhost:8080`.
 
 1. Create a new public GitHub repository named `puddle-piano`.
 2. Upload the contents of this directory (including `.github/workflows/deploy.yml`).
-3. In the repository, go to **Settings → Pages → Build and deployment** and set **Source** to **GitHub Actions**.
+3. In the repository, go to **Settings → Pages → Build and deployment** and set **Source** to **GitHub Actions**. This one-time setting is required before the deployment workflow can run; GitHub's default `GITHUB_TOKEN` cannot enable Pages for a repository.
 4. Push to the `main` branch. The workflow publishes the website at `https://YOUR-USERNAME.github.io/puddle-piano/`.
 
 GitHub Pages hosts static HTML, CSS, and JavaScript, and GitHub Actions is the recommended deployment approach. Public repositories can use this deployment at no cost. See [GitHub’s Pages documentation](https://docs.github.com/en/get-started/start-your-journey/deploying-your-website-automatically).
